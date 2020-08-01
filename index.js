@@ -1,59 +1,72 @@
-(function(){
-    console.log("hello treasure");
+(async function(){
+	const joinTrigger = document.getElementById('join_trigger_button')
+	const roomId = document.getElementById('room_id')
+	const remoteVideos = document.getElementById('js-remote-streams');
 
-    let localStream;
+	console.log("hello treasure");
 
-  // カメラ映像取得
-  navigator.mediaDevices.getUserMedia({video: true, audio: true})
-    .then( stream => {
-    // 成功時にvideo要素にカメラ映像をセットし、再生
-    const videoElm = document.getElementById('my-video')
-    videoElm.srcObject = stream;
-    videoElm.play();
-    // 着信時に相手にカメラ映像を返せるように、グローバル変数に保存しておく
-    localStream = stream;
-  }).catch( error => {
-    // 失敗時にはエラーログを出力
-    console.error('mediaDevice.getUserMedia() error:', error);
-    return;
-  });
-    // try{
-    //     const localStream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
-    //     const videoElement = document.getElementById("my-video");
-    //     videoElement.srcObject = localStream;
-    //     videoElement.play();
-    // }catch(error){
-    //     alert(error);
-    // }
+	let localStream;
 
-    const peer = new Peer({
-        key: '62c11e71-110c-43e6-98e1-d3944aa627af',
-        debug: 3
-    });
-    
-    peer.on('open', () => {
-        document.getElementById('my-id').textContent = peer.id;
-    });
+	// カメラ映像取得
+	navigator.mediaDevices.getUserMedia({video: true, audio: true})
+		.then( stream => {
+			// 成功時にvideo要素にカメラ映像をセットし、再生
+			const videoElm = document.getElementById('my-video')
+			videoElm.srcObject = stream;
+			videoElm.play();
+			// 着信時に相手にカメラ映像を返せるように、グローバル変数に保存しておく
+			localStream = stream;
+		}).catch( error => {
+			// 失敗時にはエラーログを出力
+			console.error('mediaDevice.getUserMedia() error:', error);
+			return;
+		});
+
+	const peer = new Peer({
+		key: '62c11e71-110c-43e6-98e1-d3944aa627af',
+		debug: 3
+	});
+
+	joinTrigger.addEventListener('click', () => {
+		const roomid = roomId.value
+		if (!peer.open) {
+			return;
+		}
+
+		const room = peer.joinRoom(roomid, {
+			method: 'mesh',
+			stream: localStream,
+		})
+
+		room.on('stream', async stream => {
+			const newVideo = document.createElement('video');
+			newVideo.srcObject = stream;
+			newVideo.playsInline = true;
+			// mark peerId to find it later at peerLeave event
+			newVideo.setAttribute('data-peer-id', stream.peerId);
+			remoteVideos.append(newVideo);
+			await newVideo.play().catch(console.error);
+		});
 
 
-    document.getElementById('make-call').onclick = () => {
-        const theirID = document.getElementById('their-id').value;
-        const mediaConnection = peer.call(theirID, localStream);
-        setEventListener(mediaConnection);
-      };
-      
-      // イベントリスナを設置する関数
-      const setEventListener = mediaConnection => {
-        mediaConnection.on('stream', stream => {
-          // video要素にカメラ映像をセットして再生
-          const videoElm = document.getElementById('their-video')
-          videoElm.srcObject = stream;
-          videoElm.play();
-        });
-      }
+		room.on('peerLeave', peerId => {
+			const remoteVideo = remoteVideos.querySelector(
+				`[data-peer-id="${peerId}"]`
+			);
+			remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+			remoteVideo.srcObject = null;
+			remoteVideo.remove();
+		});
 
-      peer.on('call', mediaConnection => {
-        mediaConnection.answer(localStream);
-        setEventListener(mediaConnection);
-      });
+		// for closing myself
+		room.once('close', () => {
+			Array.from(remoteVideos.children).forEach(remoteVideo => {
+				remoteVideo.srcObject.getTracks().forEach(track => track.stop());
+				remoteVideo.srcObject = null;
+				remoteVideo.remove();
+			});
+		});
+
+	})
+
 })();
